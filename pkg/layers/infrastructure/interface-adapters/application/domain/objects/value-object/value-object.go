@@ -67,7 +67,7 @@ type ValueObject struct{}
 const (
 	DeclaredName = "ValueObject"
 	MarkerField  = "_"
-	FullPackage  = "github.com/nobuenhombre/dddgo/pkg/layers/infrastructure/interface-adapters/application/domain/objects/value-object/valueobject"
+	FullPackage  = "github.com/nobuenhombre/dddgo/pkg/layers/infrastructure/interface-adapters/application/domain/objects/value-object"
 )
 
 // isValueObjectTypeDeclaration checks if a struct type contains the ValueObject marker field named "_".
