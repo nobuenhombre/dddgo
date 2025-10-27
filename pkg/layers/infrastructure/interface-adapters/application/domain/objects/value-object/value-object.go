@@ -4,9 +4,9 @@
 // Value Objects are identified by embedding the ValueObject marker type:
 //
 //		type Location struct {
-//	     x int
-//	     y int
-//	     ...
+//	        x int
+//	        y int
+//	        ...
 //			_ valueobject.ValueObject
 //		}
 //
@@ -26,7 +26,7 @@
 //			 t.Skip("no value objects found")
 //		 }
 //
-//		 for typeDeclaration, _ := range report.Types {
+//		 for typeDeclaration := range report.Types {
 //			 t.Logf("found declared Value Object: %s", typeDeclaration)
 //		 }
 //
@@ -64,35 +64,36 @@ import (
 // Embed this as an anonymous field in your Value Object structs to enable validation.
 type ValueObject struct{}
 
-// isValueObjectTypeDeclaration checks if a struct type contains the ValueObject marker field.
+const (
+	DeclaredName = "ValueObject"
+	MarkerField  = "_"
+	FullPackage  = "github.com/nobuenhombre/dddgo/pkg/layers/infrastructure/interface-adapters/application/domain/objects/value-object/valueobject"
+)
+
+// isValueObjectTypeDeclaration checks if a struct type contains the ValueObject marker field named "_".
 //
 // Parameters:
+//   - file: The AST file to check imports from
 //   - structType: The AST struct type to check
 //
 // Returns:
-//   - true if the struct contains the ValueObject marker, false otherwise
+//   - true if the struct contains the ValueObject marker named "_", false otherwise
 func isValueObjectTypeDeclaration(file *ast.File, structType *ast.StructType) bool {
 	if structType.Fields == nil {
 		return false
 	}
 
-	var pkgAlias string
-	for _, imp := range file.Imports {
-		if strings.Contains(imp.Path.Value, "valueobject") {
-			if imp.Name != nil {
-				pkgAlias = imp.Name.Name
-			} else {
-				pkgAlias = "valueobject"
-			}
-			break
-		}
+	pkgAlias := getPackageAlias(file, FullPackage)
+	if pkgAlias == "" {
+		return false
 	}
 
 	for _, field := range structType.Fields.List {
-		if len(field.Names) == 1 && field.Names[0].Name == "_" {
+		// STRICT CHECK: Only fields explicitly named "_" are considered Value Object markers
+		if len(field.Names) == 1 && field.Names[0].Name == MarkerField {
 			if selector, ok := field.Type.(*ast.SelectorExpr); ok {
 				if ident, ok := selector.X.(*ast.Ident); ok {
-					if ident.Name == pkgAlias && selector.Sel.Name == "ValueObject" {
+					if ident.Name == pkgAlias && selector.Sel.Name == DeclaredName {
 						return true
 					}
 				}
@@ -101,6 +102,30 @@ func isValueObjectTypeDeclaration(file *ast.File, structType *ast.StructType) bo
 	}
 
 	return false
+}
+
+// getPackageAlias finds the package alias for a given full package path in the file's imports.
+//
+// Parameters:
+//   - file: The AST file to check imports from
+//   - fullPackagePath: The full package path to look for
+//
+// Returns:
+//   - The package alias if found, empty string otherwise
+func getPackageAlias(file *ast.File, fullPackagePath string) string {
+	for _, imp := range file.Imports {
+		importPath := strings.Trim(imp.Path.Value, `"`)
+
+		if importPath == fullPackagePath {
+			if imp.Name != nil {
+				return imp.Name.Name
+			}
+
+			parts := strings.Split(fullPackagePath, "/")
+			return parts[len(parts)-1] // "valueobject"
+		}
+	}
+	return ""
 }
 
 // findValueObjectTypeDeclarations scans the project directory for Value Object type declarations.
