@@ -1,4 +1,4 @@
-module dddgo
+module github.com/nobuenhombre/dddgo
 
 go 1.24
 
