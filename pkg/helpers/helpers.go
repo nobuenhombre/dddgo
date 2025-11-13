@@ -217,7 +217,7 @@ func FindConstructors(rootPath string, typeDeclarations map[string]bool) (map[st
 						start := fileSet.Position(funcDecl.Pos()).Line
 						end := fileSet.Position(funcDecl.End()).Line
 
-						key := funcDecl.Name.Name + ":" + ident.Name
+						key := path + ":" + funcDecl.Name.Name + ":" + ident.Name
 						constructors[key] = &ConstructorInfo{
 							File:      path,
 							StartLine: start,
