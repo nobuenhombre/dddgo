@@ -141,6 +141,8 @@ func FindTypeDeclarations(rootPath string, isTypeDeclaration IsTypeDeclaration) 
 			return nil
 		}
 
+		currentPackage := file.Name.Name
+
 		ast.Inspect(file, func(n ast.Node) bool {
 			typeSpec, ok := n.(*ast.TypeSpec)
 			if !ok {
@@ -153,7 +155,8 @@ func FindTypeDeclarations(rootPath string, isTypeDeclaration IsTypeDeclaration) 
 			}
 
 			if isTypeDeclaration(file, structType) {
-				typeDeclarations[typeSpec.Name.Name] = true
+				typeKey := currentPackage + "." + typeSpec.Name.Name
+				typeDeclarations[typeKey] = true
 			}
 
 			return true
@@ -205,6 +208,8 @@ func FindConstructors(rootPath string, typeDeclarations map[string]bool) (map[st
 			return nil
 		}
 
+		currentPackage := file.Name.Name
+
 		ast.Inspect(file, func(n ast.Node) bool {
 			funcDecl, ok := n.(*ast.FuncDecl)
 			if !ok || funcDecl.Name == nil || !strings.HasPrefix(funcDecl.Name.Name, "New") {
@@ -213,11 +218,12 @@ func FindConstructors(rootPath string, typeDeclarations map[string]bool) (map[st
 
 			if funcDecl.Type.Results != nil && len(funcDecl.Type.Results.List) > 0 {
 				if ident, ok := funcDecl.Type.Results.List[0].Type.(*ast.Ident); ok {
-					if typeDeclarations[ident.Name] {
+					typeKey := currentPackage + "." + ident.Name
+					if typeDeclarations[typeKey] {
 						start := fileSet.Position(funcDecl.Pos()).Line
 						end := fileSet.Position(funcDecl.End()).Line
 
-						key := path + ":" + funcDecl.Name.Name + ":" + ident.Name
+						key := path + ":" + funcDecl.Name.Name + ":" + typeKey
 						constructors[key] = &ConstructorInfo{
 							File:      path,
 							StartLine: start,
@@ -245,7 +251,7 @@ func FindConstructors(rootPath string, typeDeclarations map[string]bool) (map[st
 // Parameters:
 //   - file: The file path to check
 //   - line: The line number to check
-//   - typeDeclaration: The SomeObject type name
+//   - typeDeclaration: The SomeObject type name (now in format "package.TypeName")
 //   - constructors: A map of constructor information
 //
 // Returns:
@@ -292,9 +298,13 @@ func FindZeroValueInitializations(rootPath string, markerName string, typeDeclar
 			return nil
 		}
 
+		// Get current package name
+		currentPackage := file.Name.Name
+
 		ast.Inspect(file, func(n ast.Node) bool {
 			var compLit *ast.CompositeLit
 			var typeName string
+			var typePackage string = currentPackage // Default to current package
 
 			if cl, ok := n.(*ast.CompositeLit); ok {
 				// Case 1: Direct usage of Location{} (return value, argument, etc.)
@@ -327,26 +337,50 @@ func FindZeroValueInitializations(rootPath string, markerName string, typeDeclar
 				return true
 			}
 
-			// Determine type name
+			// Determine type name and package
 			switch typ := compLit.Type.(type) {
 			case *ast.Ident:
 				typeName = typ.Name
+				// For Ident, type is in current package
+				typePackage = currentPackage
 			case *ast.SelectorExpr:
 				typeName = typ.Sel.Name
+				// For SelectorExpr, get the package from the selector
+				if ident, ok := typ.X.(*ast.Ident); ok {
+					typePackage = ident.Name
+					// Resolve imported package alias to full package name
+					for _, imp := range file.Imports {
+						importPath := strings.Trim(imp.Path.Value, `"`)
+						if imp.Name != nil && imp.Name.Name == typePackage {
+							// Use the last part of the import path as package name
+							parts := strings.Split(importPath, "/")
+							typePackage = parts[len(parts)-1]
+							break
+						} else if imp.Name == nil {
+							parts := strings.Split(importPath, "/")
+							if parts[len(parts)-1] == typePackage {
+								break
+							}
+						}
+					}
+				}
 			default:
 				return true
 			}
 
-			// Check if this is a Value Object type
-			if !typeDeclarations[typeName] {
+			// Create a unique key combining package and type name
+			typeKey := typePackage + "." + typeName
+
+			// Check if this is a Value Object type from the correct package
+			if !typeDeclarations[typeKey] {
 				return true
 			}
 
 			line := fileSet.Position(compLit.Pos()).Line
 
 			// Check if this is inside a constructor
-			if !IsInsideConstructor(path, line, typeName, constructors) {
-				violation := fmt.Sprintf("VIOLATION: Direct zero-value initialization of %s %s at %s:%d", markerName, typeName, path, line)
+			if !IsInsideConstructor(path, line, typeKey, constructors) {
+				violation := fmt.Sprintf("VIOLATION: Direct zero-value initialization of %s %s at %s:%d", markerName, typeKey, path, line)
 				violations[violation] = true
 			}
 			return true
